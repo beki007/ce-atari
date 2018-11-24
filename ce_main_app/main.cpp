@@ -10,6 +10,9 @@
 #include <sys/file.h>
 #include <errno.h>
 
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
+
 #include "config/configstream.h"
 #include "settings.h"
 #include "global.h"
@@ -24,6 +27,8 @@
 #include "ce_conf_on_rpi.h"
 #include "periodicthread.h"
 #include "display/displaythread.h"
+#include "floppy/imagesilo.h"
+#include "floppy/floppyimagemsa.h"
 
 #include "webserver/webserver.h"
 #include "webserver/api/apimodule.h"
@@ -66,6 +71,129 @@ int  singleInstanceSocketFd;
 
 void showOnDisplay(int argc, char *argv[]);
 
+TEST(getExtension, libValue)
+    {
+        EXPECT_EQ(0, strcasecmp(Utils::getExtension("function.lib"), "lib"));
+    }
+
+TEST(getExtension, empty)
+    {
+        EXPECT_EQ(NULL, Utils::getExtension("function"));
+    }
+
+TEST(getExtension, cppFile)
+    {
+        EXPECT_EQ(0, strcasecmp(Utils::getExtension("function.cpp"), "cpp"));
+    }
+
+TEST(isZipFile, yes)
+    {
+        EXPECT_EQ(true, Utils::isZIPfile("function.zip"));
+    }
+
+TEST(isZipFile, empty)
+    {
+        EXPECT_EQ(false, Utils::isZIPfile("function"));
+    }
+
+TEST(isZipFile, no)
+    {
+        EXPECT_EQ(false, Utils::isZIPfile("function.h"));
+    }
+
+TEST(splitFilenameFromPath, file)
+    {
+        const std::string pathAndFile =  "function.h";
+        std::string path, file;
+        Utils::splitFilenameFromPath(pathAndFile, path, file);
+        EXPECT_EQ(0, file.compare("function.h"));
+    }
+
+TEST(splitFilenameFromPath, path)
+    {
+        const std::string pathAndFile =  "dev//myComputer//function.h";
+        std::string path, file;
+        Utils::splitFilenameFromPath(pathAndFile, path, file);
+        EXPECT_EQ(0, file.compare("function.h"));
+    }
+
+TEST(splitFilenameFromExt, file)
+    {
+        const std::string filename =  "function.h";
+        std::string ext, file;
+        Utils::splitFilenameFromExt(filename, file, ext);
+        EXPECT_EQ(0, file.compare("function"));
+    }
+
+TEST(createPathWithOtherExtension, extensionCpp)
+    {
+        std::string inPathWithOriginalExt = "function.h";
+        std::string outPathWithOtherExtension;
+        const char *otherExtension = "cpp";
+        Utils::createPathWithOtherExtension(inPathWithOriginalExt, otherExtension, outPathWithOtherExtension);
+        EXPECT_EQ(0, outPathWithOtherExtension.compare("function.cpp"));
+    }
+
+TEST(createPathWithOtherExtension, extension)
+    {
+        std::string inPathWithOriginalExt = "function.h";
+        std::string outPathWithOtherExtension;
+        const char *otherExtension = ".cpp";
+        Utils::createPathWithOtherExtension(inPathWithOriginalExt, otherExtension, outPathWithOtherExtension);
+        EXPECT_EQ(0, outPathWithOtherExtension.compare("function.cpp"));
+    }
+
+TEST(splitFilenameFromExt, extension)
+    {
+        const std::string filename =  "function.h";
+        std::string ext, file;
+        Utils::splitFilenameFromExt(filename, file, ext);
+        EXPECT_EQ(0, ext.compare("h"));
+    }
+
+TEST(copyFile, existingFile)
+    {
+        std::string source =  "//home//lukas//atarijookie//ce-atari//ce_main_app";
+        std::string dest = "//home//lukas//ce_main_app";
+        bool bRetVal = Utils::copyFile(source, dest);
+        EXPECT_EQ(true, bRetVal);
+        EXPECT_EQ(true, Utils::fileExists(dest));
+    }
+
+TEST(copyFile, notExistingFile)
+    {
+        std::string source =  "//home//lukas//atarijookie//ce-atari//ce_main_app2";
+        std::string dest = "//home//lukas//ce_main_app2";
+        bool bRetVal = Utils::copyFile(source, dest);
+        EXPECT_EQ(false, bRetVal);
+        EXPECT_EQ(false, Utils::fileExists(dest));
+    }
+
+TEST(floppyDisk, open)
+    {
+        MockFloppyImageMsa fImg;
+        EXPECT_CALL(fImg, loadImageIntoMemory())
+        .Times(1)
+        .WillOnce(Return(true));
+
+        bool retVal = fImg.open("//home//lukas//A.msa");
+
+        EXPECT_EQ(true, retVal);
+    }
+
+TEST(floppyDisk, openNotExisting)
+    {
+        MockFloppyImageMsa fImg;
+        EXPECT_CALL(fImg, loadImageIntoMemory())
+        .Times(0));
+
+        bool retVal = fImg.open("//home//lukas//A2.msa");
+
+        EXPECT_EQ(false, retVal);
+    }
+
+
+
 int main(int argc, char *argv[])
 {
     CCoreThread *core;
@@ -80,6 +208,7 @@ int main(int argc, char *argv[])
 
     pthread_mutex_init(&shared.mtxScsi,             NULL);
     pthread_mutex_init(&shared.mtxConfigStreams,    NULL);
+    pthread_mutex_init(&shared.mtxImages,           NULL);
 
     printf("\033[H\033[2J\n");
 
@@ -107,6 +236,10 @@ int main(int argc, char *argv[])
     loadLastHwConfig();                                         // load last found HW IF, HW version, SCSI machine
 
     printf("CosmosEx main app starting on %s...\n", distroString);
+
+    ::testing::InitGoogleTest(&argc, argv);
+    ::testing::InitGoogleMock(&argc, argv);
+    RUN_ALL_TESTS();
 
     //------------------------------------
     // if not running as ce_conf, register signal handlers
